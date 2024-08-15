@@ -1,0 +1,6 @@
+beautifulsoup4
+pydantic
+requests
+
+# pip install mypy ruff
+# pip install types-beautifulsoup4 types-requests
