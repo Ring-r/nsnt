@@ -145,6 +145,9 @@ def _parse_main_pages(page_count: int) -> Iterable[ShortstoryData]:
     for i in range(page_count):
         for new_shortstory_data in _parse_main_page(i + 1):
             id_ = new_shortstory_data.id_
+            if id_ in grey_list:
+                continue
+
             if id_ not in data_index:
                 yield new_shortstory_data
                 continue
@@ -175,22 +178,3 @@ def _freez_shortstory_data(id_: int) -> None:
 
 def _skip_shortstory_data(id_: int) -> None:
     grey_list.add(id_)
-
-
-def _parse_main_pages_with_gray_list(page_count: int) -> Iterable[ShortstoryData]:
-    for i in range(page_count):
-        for new_shortstory_data in _parse_main_page(i + 1):
-            id_ = new_shortstory_data.id_
-            if id_ in grey_list:
-                continue
-
-            if id_ not in data_index:
-                yield new_shortstory_data
-                continue
-
-            shortstory_data = _get_shortstory_data(id_)
-            if shortstory_data.update_date != new_shortstory_data.update_date:
-                yield new_shortstory_data
-                continue
-
-            return
