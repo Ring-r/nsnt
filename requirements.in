@@ -4,3 +4,4 @@ requests
 
 # pip install mypy ruff
 # pip install types-beautifulsoup4 types-requests
+# pip install ipykernel

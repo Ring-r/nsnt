@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -14,119 +15,129 @@ logger = logging.getLogger(__name__)
 class ShortstoryData(pydantic.BaseModel):
     id_: int
     title: str
-    update_date: str
+    update_date: datetime
+    update_marker: str
     url: str
 
 
+class CachedData(pydantic.BaseModel):
+    items: list[ShortstoryData] = []
+
+
+cached_data_file_path = Path("cached_data.json")
+
+
+def _load_cached_data() -> dict[int, ShortstoryData]:
+    if not cached_data_file_path.exists():
+        return {}
+
+    with cached_data_file_path.open() as cahce_data_file:
+        text = cahce_data_file.read()
+        return {item.id_: item for item in CachedData.model_validate_json(text).items}
+
+
+cached_data = _load_cached_data()
+
+
+def _save_cached_data() -> None:
+    with cached_data_file_path.open("w") as data_file:
+        data_file.write(CachedData(items=list(cached_data.values())).model_dump_json())
+
+
+def _add_to_cached_data(item: ShortstoryData) -> None:
+    cached_item = cached_data.get(item.id_)
+    if cached_item is not None and cached_item.update_marker == item.update_marker:
+        return
+
+    cached_data[item.id_] = item
+    _save_cached_data()
+
+
 class Data(pydantic.BaseModel):
-    data: list[ShortstoryData]
+    items: list[ShortstoryData] = []
+    ignored_items: list[ShortstoryData] = []
 
 
-# TODO: store data to text file; next - use sqlite
-data = Data(data=[])
-data_index: dict[int, int] = {}
-
-
-def _get_shortstory_data(id_: int) -> ShortstoryData:
-    index = data_index[id_]
-    return data.data[index]
-
-
-def _set_shortstory_data(shortstory_data: ShortstoryData) -> None:
-    global data
-
-    if shortstory_data.id_ not in data_index:
-        data.data.append(shortstory_data)
-        data_index[shortstory_data.id_] = len(data.data) - 1
-    else:
-        index = data_index[shortstory_data.id_]
-        data.data[index] = shortstory_data
-
-
-new_data = Data(data=[])
-new_data_index: dict[int, int] = {}
-
-
-def _get_new_shortstory_data(id_: int) -> ShortstoryData:
-    index = new_data_index[id_]
-    return new_data.data[index]
-
-
-def _set_new_shortstory_data(new_shortstory_data: ShortstoryData) -> None:
-    global new_data
-
-    if new_shortstory_data.id_ not in new_data_index:
-        new_data.data.append(new_shortstory_data)
-        new_data_index[new_shortstory_data.id_] = len(new_data.data) - 1
-    else:
-        index = new_data_index[new_shortstory_data.id_]
-        new_data.data[index] = new_shortstory_data
-
-
-grey_list: set[int] = set()
-
+# TODO: use datavase (sqlite + sqlalchemy + orm) to store data and data_ignore
 
 data_file_path = Path("data.json")
 
 
-def _load_data() -> None:
-    global data
-
+def _load_data() -> tuple[dict[int, ShortstoryData], dict[int, ShortstoryData]]:
     if not data_file_path.exists():
-        data = Data(data=[])
-        return
+        return {}, {}
 
-    with open(data_file_path) as data_file:
+    with data_file_path.open() as data_file:
         text = data_file.read()
         data = Data.model_validate_json(text)
+        items = {item.id_: item for item in data.items}
+        ignored_items = {item.id_: item for item in data.ignored_items}
+
+        for item in data.items:
+            _add_to_cached_data(item)
+        for item in data.ignored_items:
+            _add_to_cached_data(item)
+
+        return items, ignored_items
+
+
+data, ignored_data = _load_data()
 
 
 def _save_data() -> None:
-    with open(data_file_path, "w") as data_file:
-        data_file.write(data.model_dump_json())
+    with data_file_path.open("w") as data_file:
+        data_file.write(
+            Data(
+                items=list(data.values()),
+                ignored_items=list(ignored_data.values()),
+            ).model_dump_json(indent=2),
+        )
 
 
-def _fetch_page(url):
+def _fetch_page(url: str) -> str:
     response = requests.get(url)
-    response.raise_for_status()  # Raise an HTTPError if the request returned an unsuccessful status code
+    response.raise_for_status()
     return response.text
 
 
 def _parse_shortstory_data_s(soup: BeautifulSoup) -> Iterable[ShortstoryData]:
     for shortstory_element in soup.find_all(class_="shortstory"):
         if not isinstance(shortstory_element, Tag):
-            raise Exception
+            raise TypeError
+
         shortstory_head_element = shortstory_element.find(class_="shortstoryHead")
         if not isinstance(shortstory_head_element, Tag):
-            raise Exception
+            raise TypeError
         a = shortstory_head_element.find("a", href=True)
         if not isinstance(a, Tag):
-            raise Exception
+            raise TypeError
         href = a["href"]
         if not isinstance(href, str):
-            raise Exception
+            raise TypeError
         id_: int = int(href.split("/")[-1].split("-")[0])
         title = a.text
-        update_date_element = shortstory_element.find(class_="staticInfoLeftData")
-        if not isinstance(update_date_element, Tag):
-            raise Exception
-        update_date = update_date_element.text
+
+        update_marker_element = shortstory_element.find(class_="staticInfoLeftData")
+        if not isinstance(update_marker_element, Tag):
+            raise TypeError
+        update_marker = update_marker_element.text
 
         shortstory_data = ShortstoryData(
             id_=id_,
             title=title,
-            update_date=update_date,
+            update_date=datetime.now(),
+            update_marker=update_marker,
             url=href,
         )
-        _set_new_shortstory_data(shortstory_data)
+        _add_to_cached_data(shortstory_data)
 
         yield shortstory_data
 
 
 def _get_page_count(soup: BeautifulSoup) -> int:
-    # an error will be rised if page structure is changed
     pager = soup.find(class_="block_4")
-    assert isinstance(pager, Tag)
+    if not isinstance(pager, Tag):
+        raise TypeError
     *_, last_page_index_element = (x for x in pager.children if x.text.strip())
     return int(last_page_index_element.text)
 
@@ -141,40 +152,53 @@ def _parse_main_page(page_index: int = 1) -> Iterable[ShortstoryData]:
     yield from _parse_shortstory_data_s(soup)
 
 
-def _parse_main_pages(page_count: int) -> Iterable[ShortstoryData]:
-    for i in range(page_count):
-        for new_shortstory_data in _parse_main_page(i + 1):
-            id_ = new_shortstory_data.id_
-            if id_ in grey_list:
-                continue
-
-            if id_ not in data_index:
-                yield new_shortstory_data
-                continue
-
-            shortstory_data = _get_shortstory_data(id_)
-            if shortstory_data.update_date != new_shortstory_data.update_date:
-                yield new_shortstory_data
-                continue
-
-            return
+# TODO: save last date update and update from 1 page until find necessary date
 
 
 def _parse_shortstory_page(id_: int) -> None:
-    # TODO: fix
-    url = _get_shortstory_data(id_).url
+    cache_shortstory_data = cached_data.get(id_)
+    if cache_shortstory_data is None:
+        return  # TODO: or error?
 
+    url = cache_shortstory_data.url
     html = _fetch_page(url)
     soup = BeautifulSoup(html, "html.parser")
 
-    assert isinstance(soup.title, Tag)
-    _get_new_shortstory_data(id_).title = soup.title.text.split("»")[0].strip()
+    if not isinstance(soup.title, Tag):
+        raise TypeError
+    title = soup.title.text.split("»")[0].strip()
+
+    update_marker_element = soup.find(class_="staticInfoLeftData")
+    if not isinstance(update_marker_element, Tag):
+        raise TypeError
+    update_marker = update_marker_element.text
+
+    shortstory_data = ShortstoryData(
+        id_=id_,
+        title=title,
+        update_date=datetime.now(),
+        update_marker=update_marker,
+        url=url,
+    )
+    _add_to_cached_data(shortstory_data)
 
 
-def _freez_shortstory_data(id_: int) -> None:
-    _set_shortstory_data(_get_new_shortstory_data(id_))
+def _add(id_: int) -> None:
+    cache_shortstory_data = cached_data.get(id_)
+    if cache_shortstory_data is None:
+        return  # TODO: or error?
+    data[id_] = cache_shortstory_data
     _save_data()
 
 
-def _skip_shortstory_data(id_: int) -> None:
-    grey_list.add(id_)
+def _add_ignore(id_: int) -> None:
+    cache_shortstory_data = cached_data.get(id_)
+    if cache_shortstory_data is None:
+        return  # TODO: or error?
+    ignored_data[id_] = cache_shortstory_data
+    _save_data()
+
+
+def _look_to_watch(page_number: int) -> Iterable[ShortstoryData]:
+    processed_id_s = set(data.keys()) | set(ignored_data.keys())
+    yield from (x for x in _parse_main_page(page_number) if x.id_ not in processed_id_s)
