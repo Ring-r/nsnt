@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -44,13 +44,14 @@ def _save_cached_data() -> None:
         data_file.write(CachedData(items=list(cached_data.values())).model_dump_json())
 
 
-def _add_to_cached_data(item: ShortstoryData) -> None:
+def _add_to_cached_data(item: ShortstoryData) -> bool:
     cached_item = cached_data.get(item.id_)
     if cached_item is not None and cached_item.update_marker == item.update_marker:
-        return
+        return False
 
     cached_data[item.id_] = item
     _save_cached_data()
+    return True
 
 
 class Data(pydantic.BaseModel):
@@ -100,7 +101,11 @@ def _fetch_page(url: str) -> str:
     return response.text
 
 
-def _parse_shortstory_data_s(soup: BeautifulSoup) -> Iterable[ShortstoryData]:
+def _parse_shortstory_data_s(
+    soup: BeautifulSoup,
+    *,
+    stop_on_duplicate: bool = False,
+) -> Iterable[ShortstoryData]:
     for shortstory_element in soup.find_all(class_="shortstory"):
         if not isinstance(shortstory_element, Tag):
             raise TypeError
@@ -122,16 +127,18 @@ def _parse_shortstory_data_s(soup: BeautifulSoup) -> Iterable[ShortstoryData]:
             raise TypeError
         update_marker = update_marker_element.text
 
-        shortstory_data = ShortstoryData(
+        item = ShortstoryData(
             id_=id_,
             title=title,
-            update_date=datetime.now(),
+            update_date=datetime.now(tz=UTC),
             update_marker=update_marker,
             url=href,
         )
-        _add_to_cached_data(shortstory_data)
+        is_add = _add_to_cached_data(item)
+        if stop_on_duplicate and not is_add:
+            return
 
-        yield shortstory_data
+        yield item
 
 
 def _get_page_count(soup: BeautifulSoup) -> int:
@@ -142,25 +149,40 @@ def _get_page_count(soup: BeautifulSoup) -> int:
     return int(last_page_index_element.text)
 
 
-def _parse_main_page(page_index: int = 1) -> Iterable[ShortstoryData]:
+def _parse_main_page(
+    page_index: int = 1,
+    *,
+    stop_on_duplicate: bool = False,
+) -> Iterable[ShortstoryData]:
     url = "https://v2.vost.pw/"
     if page_index > 1:
         url = f"{url}page/{page_index}/"
 
     html = _fetch_page(url)
     soup = BeautifulSoup(html, "html.parser")
-    yield from _parse_shortstory_data_s(soup)
+    yield from _parse_shortstory_data_s(soup, stop_on_duplicate=stop_on_duplicate)
 
 
-# TODO: save last date update and update from 1 page until find necessary date
+def _parse_main_pages(
+    page_number_start: int = 1,
+    page_count: int = 10,
+    *,
+    stop_on_duplicate: bool = False,
+) -> Iterable[ShortstoryData]:
+    if stop_on_duplicate and len(cached_data) == 0:
+        yield from _parse_main_page()
+        return
+
+    for page_number in range(page_number_start, page_number_start + page_count):
+        yield from _parse_main_page(page_number, stop_on_duplicate=stop_on_duplicate)
 
 
 def _parse_shortstory_page(id_: int) -> None:
-    cache_shortstory_data = cached_data.get(id_)
-    if cache_shortstory_data is None:
-        return  # TODO: or error?
+    cached_item = cached_data.get(id_)
+    if cached_item is None:
+        return
 
-    url = cache_shortstory_data.url
+    url = cached_item.url
     html = _fetch_page(url)
     soup = BeautifulSoup(html, "html.parser")
 
@@ -176,7 +198,7 @@ def _parse_shortstory_page(id_: int) -> None:
     shortstory_data = ShortstoryData(
         id_=id_,
         title=title,
-        update_date=datetime.now(),
+        update_date=datetime.now(tz=UTC),
         update_marker=update_marker,
         url=url,
     )
@@ -184,21 +206,21 @@ def _parse_shortstory_page(id_: int) -> None:
 
 
 def _add(id_: int) -> None:
-    cache_shortstory_data = cached_data.get(id_)
-    if cache_shortstory_data is None:
-        return  # TODO: or error?
-    data[id_] = cache_shortstory_data
+    cached_item = cached_data.get(id_)
+    if cached_item is None:
+        return
+    data[id_] = cached_item
     _save_data()
 
 
 def _add_ignore(id_: int) -> None:
-    cache_shortstory_data = cached_data.get(id_)
-    if cache_shortstory_data is None:
-        return  # TODO: or error?
-    ignored_data[id_] = cache_shortstory_data
+    cached_item = cached_data.get(id_)
+    if cached_item is None:
+        return
+    ignored_data[id_] = cached_item
     _save_data()
 
 
-def _look_to_watch(page_number: int) -> Iterable[ShortstoryData]:
-    processed_id_s = set(data.keys()) | set(ignored_data.keys())
-    yield from (x for x in _parse_main_page(page_number) if x.id_ not in processed_id_s)
+# TODO: add priority to interested items
+# TODO: show items wich is not equal to cached and sort by priority (use paging)
+# TODO: show cached items groupped by update_date sort
