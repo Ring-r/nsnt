@@ -233,33 +233,21 @@ def _set_priority(id_: int, priority: float) -> None:
     _save_data()
 
 
-# show 3 lists:
-#   - list of interest (loi):
-#       - filter by changes; i don't want to see information that i've processed;
-#       - sorted by priority; to see main information first; it would be good to store data in sorted mode;
-#       - show id, info (title), changes; id to manipulate, info to understand, changes to make desizion;
-#   - list of others;
-#       - filter (exclude loi; exclude ignor_list);
-#       - sort by update_date; it would be good to store data in sorted mode;
-#       - group by number of update (each update of main pages has unique number; not implemented);
-#       - show id, info (title); id to manipulate, info to understand;
-#   - list of ignore (igonre_list);
-#       - sorted by time of adding; to remove if add wrong; it would be good to store data in sorted mode;
-#       - show id, info (title);
-
-
 def _get_interests() -> Iterable[str]:
+    # filter by changes; i don't want to see information that i've processed;
     changed_data = (
         item
         for item in data.values()
         if item.update_marker != cached_data[item.id_].update_marker
     )
+    # sorted by priority; to see main information first; it would be good to store data in sorted mode;
     none_priority: float = float("inf")
     sorted_data_by_priority = sorted(
         changed_data,
         key=lambda x: x.id_ if x is not None else none_priority,
         reverse=True,
     )
+    # show id, info (title), changes; id to manipulate, info to understand, changes to make desizion;
     yield from (
         f"{item.id_}\n\t{item.title}\n\t{cached_data[item.id_].title}"
         for item in sorted_data_by_priority
@@ -267,24 +255,30 @@ def _get_interests() -> Iterable[str]:
 
 
 def _get_others() -> Iterable[str]:
+    # filter (exclude loi; exclude ignor_list);
     other_data = [
         value
         for key, value in cached_data.items()
         if key not in data and key not in ignored_data
     ]
+    # sort by update_date; it would be good to store data in sorted mode;
     sorted_data_by_update_dt = sorted(
         other_data, key=lambda x: x.update_date.astimezone(UTC), reverse=True,
     )
+    # show id, info (title); id to manipulate, info to understand;
     yield from (f"{item.id_}\n\t{item.title}" for item in sorted_data_by_update_dt)
 
 
 def _get_wrong() -> Iterable[str]:
+    # sorted by time of adding; to remove if add wrong; it would be good to store data in sorted mode;
     sorted_data_by_add_dt = ignored_data  # TODO: add field `add_dt` to use `sorted(ignored_data, key=lambda x: x.add_date.astimezone(UTC), reverse=True)`
+    # show id, info (title); id to manipulate, info to understand;
     yield from (
         f"{item.id_}\n\t{item.title}" for item in sorted_data_by_add_dt.values()
     )
 
 
+# TODO: it would be good to show last not empty update; group by number of update (each update of main pages has unique number; not implemented);
 # TODO: add vs add_and_update
 # TODO: show stored difference between stored and cached. show diff in title.
 # TODO: update title and update_marker
