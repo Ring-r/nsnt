@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 from itertools import chain
 from pathlib import Path
+from time import sleep
 from typing import Iterable
 
 import pydantic
@@ -21,7 +22,7 @@ class Item(pydantic.BaseModel):
     url: str
 
     priority: float | None = None
-    # TODO: use this to store own description. `description: str | None = None`
+    description: str | None = None
 
 
 class CachedData(pydantic.BaseModel):
@@ -86,14 +87,14 @@ def _load_data() -> tuple[dict[int, Item], dict[int, Item]]:
         return items, ignored_items
 
 
-data, ignored_data = _load_data()
+watched_data, ignored_data = _load_data()
 
 
 def _save_data() -> None:
     with data_file_path.open("w") as data_file:
         data_file.write(
             Data(
-                items=list(data.values()),
+                items=list(watched_data.values()),
                 ignored_items=list(ignored_data.values()),
             ).model_dump_json(indent=2),
         )
@@ -167,20 +168,6 @@ def _parse_main_page(
     yield from _parse_shortstory_data_s(soup, stop_on_duplicate=stop_on_duplicate)
 
 
-def _parse_main_pages(
-    page_number_start: int = 1,
-    page_count: int = 10,
-    *,
-    stop_on_duplicate: bool = False,
-) -> Iterable[Item]:
-    if stop_on_duplicate and len(cached_data) == 0:
-        yield from _parse_main_page()
-        return
-
-    for page_number in range(page_number_start, page_number_start + page_count):
-        yield from _parse_main_page(page_number, stop_on_duplicate=stop_on_duplicate)
-
-
 def _parse_shortstory_page(id_: int) -> None:
     cached_item = cached_data.get(id_)
     if cached_item is None:
@@ -209,45 +196,99 @@ def _parse_shortstory_page(id_: int) -> None:
     _add_to_cached_data(shortstory_data)
 
 
-def _add(id_: int) -> None:
+def _ignore(id_: int, *, reset_marker: bool = False) -> None:
     cached_item = cached_data.get(id_)
     if cached_item is None:
         return
-    data[id_] = cached_item
+
+    item_to_add = (
+        watched_data.pop(id_) if id_ in watched_data else cached_item.model_copy()
+    )
+    ignored_data[id_] = item_to_add
+    if reset_marker:
+        _set_update_marker(id_, None)
     _save_data()
 
 
-def _add_ignore(id_: int) -> None:
+def _watch(id_: int, *, reset_marker: bool = False) -> None:
     cached_item = cached_data.get(id_)
     if cached_item is None:
         return
-    ignored_data[id_] = cached_item
+
+    item_to_add = (
+        ignored_data.pop(id_) if id_ in ignored_data else cached_item.model_copy()
+    )
+    watched_data[id_] = item_to_add
+    if reset_marker:
+        _set_update_marker(id_, None)
     _save_data()
 
 
-def _set_priority(id_: int, priority: float) -> None:
-    if id_ not in data:
+def _set_update_marker(id_: int | None, update_marker: str | None) -> None:
+    if id_ is None:
         return
 
-    data[id_].priority = priority
+    item = watched_data.get(id_) if id_ in watched_data else ignored_data.get(id_)
+    if item is None:
+        return
+
+    item.update_marker = update_marker
     _save_data()
 
 
-def _get_interests() -> Iterable[str]:
+def _set_title(id_: int | None, title: str) -> None:
+    if id_ is None:
+        return
+
+    item = watched_data.get(id_) if id_ in watched_data else ignored_data.get(id_)
+    if item is None:
+        return
+
+    item.title = title
+    _save_data()
+
+
+def _set_priority(id_: int | None, priority: float | None) -> None:
+    if id_ is None:
+        return
+
+    item = watched_data.get(id_) if id_ in watched_data else ignored_data.get(id_)
+    if item is None:
+        return
+
+    item.priority = priority
+    _save_data()
+
+
+def _set_description(id_: int | None, description: str | None) -> None:
+    if id_ is None:
+        return
+
+    item = watched_data.get(id_) if id_ in watched_data else ignored_data.get(id_)
+    if item is None:
+        return
+
+    item.description = description
+    _save_data()
+
+
+def _get_watch() -> Iterable[str]:
     # filter by changes; i don't want to see information that i've processed;
     changed_data = (
         item
-        for item in data.values()
+        for item in watched_data.values()
         if item.update_marker != cached_data[item.id_].update_marker
     )
-    # sorted by priority; to see main information first; it would be good to store data in sorted mode;
+    # sorted by priority; to see main information first;
+    # it would be good to store data in sorted mode;
     none_priority: float = float("inf")
     sorted_data_by_priority = sorted(
         changed_data,
         key=lambda x: x.id_ if x is not None else none_priority,
         reverse=True,
     )
-    # show id, info (title), changes; id to manipulate, info to understand, changes to make desizion;
+    # show id, info (title), changes;
+    # id to manipulate, info to understand, changes to make desizion;
     yield from (
         f"{item.id_}\n\t{item.title}\n\t{cached_data[item.id_].title}"
         for item in sorted_data_by_priority
@@ -259,29 +300,23 @@ def _get_others() -> Iterable[str]:
     other_data = [
         value
         for key, value in cached_data.items()
-        if key not in data and key not in ignored_data
+        if key not in watched_data and key not in ignored_data
     ]
     # sort by update_date; it would be good to store data in sorted mode;
     sorted_data_by_update_dt = sorted(
-        other_data, key=lambda x: x.update_date.astimezone(UTC), reverse=True,
+        other_data,
+        key=lambda x: x.update_date.astimezone(UTC),
+        reverse=True,
     )
     # show id, info (title); id to manipulate, info to understand;
     yield from (f"{item.id_}\n\t{item.title}" for item in sorted_data_by_update_dt)
 
 
-def _get_wrong() -> Iterable[str]:
-    # sorted by time of adding; to remove if add wrong; it would be good to store data in sorted mode;
-    sorted_data_by_add_dt = ignored_data  # TODO: add field `add_dt` to use `sorted(ignored_data, key=lambda x: x.add_date.astimezone(UTC), reverse=True)`
+def _get_ignore() -> Iterable[str]:
+    # sorted by time of adding; to remove if add wrong;
+    # it would be good to store data in sorted mode;
+    sorted_data_by_add_dt = ignored_data
     # show id, info (title); id to manipulate, info to understand;
     yield from (
         f"{item.id_}\n\t{item.title}" for item in sorted_data_by_add_dt.values()
     )
-
-
-# TODO: it would be good to show last not empty update; group by number of update (each update of main pages has unique number; not implemented);
-# TODO: add vs add_and_update
-# TODO: show stored difference between stored and cached. show diff in title.
-# TODO: update title and update_marker
-# TODO: add priority to interested items
-# TODO: show items wich is not equal to cached and sort by priority (use paging)
-# TODO: show cached items groupped by update_date sort
