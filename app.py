@@ -60,7 +60,7 @@ def _add_to_cached_data(item: Item) -> bool:
 
 
 class Data(pydantic.BaseModel):
-    items: list[Item] = []
+    watched_items: list[Item] = []
     ignored_items: list[Item] = []
 
 
@@ -76,10 +76,10 @@ def _load_data() -> tuple[dict[int, Item], dict[int, Item]]:
     with data_file_path.open() as data_file:
         text = data_file.read()
         data = Data.model_validate_json(text)
-        items = {item.id_: item for item in data.items}
+        items = {item.id_: item for item in data.watched_items}
         ignored_items = {item.id_: item for item in data.ignored_items}
 
-        for item in chain(data.items, data.ignored_items):
+        for item in chain(data.watched_items, data.ignored_items):
             if item.id_ not in cached_data:
                 _add_to_cached_data(item)
                 cached_data[item.id_].update_marker = None
@@ -94,7 +94,7 @@ def _save_data() -> None:
     with data_file_path.open("w") as data_file:
         data_file.write(
             Data(
-                items=list(watched_data.values()),
+                watched_items=list(watched_data.values()),
                 ignored_items=list(ignored_data.values()),
             ).model_dump_json(indent=2),
         )
