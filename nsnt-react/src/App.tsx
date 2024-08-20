@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './App.css';
 
-function LoadSave({data, setData}: {data: IData | null, setData: React.Dispatch<React.SetStateAction<IData | null>>}) {
+function LoadSave({data, setData}: {data: IData, setData: React.Dispatch<React.SetStateAction<IData>>}) {
   const [file, setFile] = useState<File | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,16 +29,6 @@ function LoadSave({data, setData}: {data: IData | null, setData: React.Dispatch<
     uploadFile();
   }, [file]);
 
-
-  const fileChangeHandler = async (event: Event) => {
-    const target = event.target as HTMLInputElement;
-    if (target.files == null) return;
-
-    const textContent = await target.files[0].text();
-    const jsonContent = JSON.parse(textContent);
-    localStorage.setItem('data', jsonContent);
-  }
-
   return (
     <div className="LoadSave">
       <input type="file" id="input" onChange={handleFileChange} />
@@ -53,7 +43,16 @@ function LoadSave({data, setData}: {data: IData | null, setData: React.Dispatch<
   )
 }
 
-function SourceItem() {
+interface ISourceItem {
+  title: string;
+  url: string;
+  elementsSelector: string;
+  elementUriSelector: string;
+  elementMarkersSelector: string;  // TODO: change to use multi values
+  nextPageSelector: string;
+}
+
+function SourceItem({data}: {data: ISourceItem}) {
   const [isEditing, setIsEditing] = useState(false)
 
   const checkHandler = () => {
@@ -66,22 +65,22 @@ function SourceItem() {
         <label>edit</label><input type="checkbox" name="edit" checked={isEditing} onChange={checkHandler}/>
       </div>
       <div>
-        <label>title:</label><input name="title" readOnly={isEditing} />
+        <label>title:</label><input name="title" readOnly={isEditing} value={data.title} />
       </div>
       <div hidden={!isEditing}>
-        <label>url:</label><input name="url" />
+        <label>url:</label><input name="url" value={data.url} />
       </div>
       <div hidden={!isEditing}>
-        <label>selector for elements:</label><input name="selector for elements" />
+        <label>selector for elements:</label><input name="selector for elements" value={data.elementsSelector} />
       </div>
       <div hidden={!isEditing}>
-        <label>selector for element id or url:</label><input name="selector for element id or url" />
+        <label>selector for element id or url:</label><input name="selector for element id or url" value={data.elementUriSelector} />
       </div>
       <div hidden={!isEditing}>
-        <label>selector for element markers:</label><input name="selector for element markers" />
+        <label>selector for element markers:</label><input name="selector for element markers" value={data.elementMarkersSelector} />
       </div>
       <div hidden={!isEditing}>
-        <label>selector for next page element:</label><input name="selector for next page element" />
+        <label>selector for next page element:</label><input name="selector for next page element" value={data.nextPageSelector} />
       </div>
       <button hidden={isEditing}>update</button>
       <p>
@@ -93,144 +92,132 @@ function SourceItem() {
   )
 }
 
-function Sources() {
+function Sources({data}: {data: ISourceItem[]}) {
+  const sourceItems = data.map(item => <SourceItem data={item}/>);
+
   return (
     <div className="Sources">
       <h2>sources</h2>
-      <SourceItem />
-      <p>
-      todo:<br/>
-      - create list of sources.
-      </p>
+      {sourceItems}
     </div>
   )
 }
 
-function WatchedItem() {
+interface IWatchedItem {
+  url: string;
+  source_title: string; // it is necessary to user quick understanding what it is.
+  source_description: string | null
+  user_title: string; // it is necessary to user quick understanding what it is.
+  user_description: string | null
+}
+
+function WatchedItem({data}: {data: IWatchedItem}) {
   return (
     <div className="WatchedItem">
-      <div hidden>url</div>
-      <div>image</div>
+      <div hidden>{data.url}</div>
       <div>
-        <input name="title" />
+        <input name="user_title" value={data.user_title} />
       </div>
-      <div>cached title</div>
-      <details>
-        <summary>description</summary>
-        <textarea name="description" />
-      </details>
+      <div>
+        <input name="source_title" value={data.source_title} />
+      </div>
+      {(data.user_description || data.source_description) &&
+        <details>
+          <summary>description</summary>
+          <textarea name="description">{data.user_description}</textarea>
+          {data.source_description &&
+            <details>
+              <summary>source description</summary>
+              <textarea name="description">{data.source_description}</textarea>
+            </details>
+          }
+        </details>
+      }
       <div hidden>priority</div>
+      <p>url (hidden). (later) image. user title (can be edited and saved; (maybe) set data from source title; input, useState, style). source title. (later) list of markers changes (details). user description (can be edited and save; textarea, useState, style; details). (maybe) source description (details). priority (drag and drop or buttons to change). ignore button (remove from watched list, add to ignored list).</p>
       <button>ignore</button>
-      <p>
-      todo:<br/>
-      - url (hidden)<br/>
-      - (later) image<br/>
-      - title (input; can be edited and saved)<br/>
-      - cached title (later list of changed markers) (copy current to item info)<br/>
-      - description (spoiler; can be edited and save)<br/>
-      - ignore button<br/>
-      - drag and drop or buttons to change priority.
-      </p>
     </div>
   )
 }
 
-function Watched() {
+function Watched({data}: {data: IWatchedItem[]}) {
+  const watchedItems = data.map(item => <WatchedItem data={item}/>);
+
   return (
     <div className="Watched">
       <h2>watched</h2>
-      <WatchedItem />
-      <p>
-      todo:<br/>
-      - list of watched.
-      </p>
+      {watchedItems}
     </div>
   )
 }
 
-function OtherItem() {
+interface IOtherItem {
+  url: string;
+  title: string; // it is necessary to user quick understanding what it is. the data is set by society.
+  description: string | null // the data is set by society.
+}
+
+function OtherItem({data}: {data: IOtherItem}) {
   return (
     <div className="OtherItem">
-      <div hidden>url</div>
-      <div>image</div>
-      <div>cached title</div>
-      <details>
-        <summary>description</summary>
-        <textarea name="description" />
-      </details>
+      <div hidden>{data.url}</div>
+      <div>{data.title}</div>
+      {data.description &&
+        <details>
+          <summary>{data.description}</summary>
+          <textarea name="description" />
+        </details>
+      }
+      <p>url (hidden). (later) image. title. (maybe) description (details). watch button (add to watched list). ignore button (add to ignored list).</p>
       <button>watch</button>
       <button>ignore</button>
-      <p>
-      todo:<br/>
-      - url (hidden)<br/>
-      - (later) image<br/>
-      - title<br/>
-      - (later) list of markers<br/>
-      - (maybe) description (spoiler)<br/>
-      - watch button<br/>
-      - ignore button<br/>
-      </p>
     </div>
   )
 }
 
-function Others() {
+function Others({data}: {data: IOtherItem[]}) {
+  const otherItems = data.map(item => <OtherItem data={item}/>);
+
   return (
     <div className="Others">
       <h2>others</h2>
-      <OtherItem />
-      <p>
-      todo:<br/>
-      - list of others.<br/>
-      - item (cached info). image;  url (hidden), title, (later) list of markers, (maybe) description (spoiler). watch button. ignore button.
-      </p>
+      {otherItems}
     </div>
   )
 }
 
 interface IIgnoredItem {
-  id_: number;
-  title: string;
-  update_marker: string;
   url: string;
-  priority: number | null;
-  description: string | null
+  title: string; // it is necessary to user quick understanding what it is. the data can be set by user.
+  description: string | null // the data can be set by user.
 }
 
 function IgnoredItem({data}: {data: IIgnoredItem}) {
   return (
     <div className="IgnoredItem">
       <div hidden>{data.url}</div>
-      <div>image</div>
       <div>
         <input name="title" value={data.title} />
       </div>
-      <details>
-        <summary>description</summary>
-        <textarea name="description">{data.description}</textarea>
-      </details>
+      {data.description &&
+        <details>
+          <summary>{data.description}</summary>
+          <textarea name="description">{data.description}</textarea>
+        </details>
+      }
+      <p>url (hidden). (later) image (details; lazy download). title (can be edited and saved; input, useState, style). description (can be edited and save; textarea, useState, style). watch button (remove from ignored list, add to watched list).</p>
       <button>watch</button>
-      <p>
-      todo:<br/>
-      - url (hidden)<br/>
-      - (later) image (spoiler; lazy download)<br/>
-      - title (input; can be edited and saved)<br/>
-      - description (spoiler; can be edited and save)<br/>
-      - watch button<br/>
-      </p>
     </div>
   )
 }
 
 function Ignored({data}: {data: IIgnoredItem[]}) {
+  const ignoredItems = data.map(item => <IgnoredItem data={item}/>);
+
   return (
     <div className="Ignored">
       <h2>ignored</h2>
-      <IgnoredItem data={data[0]}/>
-      <p>
-      todo:<br/>
-      - list of ignored.<br/>
-      </p>
+      {ignoredItems}
     </div>
   )
 }
@@ -240,22 +227,18 @@ interface IData {
 }
 
 function App() {
-  const [data, setData] = useState<IData | null>(null);
+  const [data, setData] = useState<IData>({
+    ignored_items: []
+  });
+
   return (
     <div className="App">
       <header className="App-header"></header>
       <LoadSave data={data} setData={setData}/>
-      {data
-        ? (
-          <>
-          <Sources />
-          <Watched />
-          <Others />
-          <Ignored data={data?.ignored_items}/>
-          </>
-        )
-        : ''
-      }
+      <Sources data={[]} />
+      <Watched data={[]} />
+      <Others data={[]} />
+      <Ignored data={data.ignored_items} />
     </div>
   );
 }
