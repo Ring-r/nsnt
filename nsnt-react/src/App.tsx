@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
+import { getData, getWatchedData, initDb, IWatchedItem, saveData, Stores, uploadFile } from './db';
 
-function LoadSave({data, setData}: {data: IData, setData: React.Dispatch<React.SetStateAction<IData>>}) {
+function LoadSave({setDataTimestamp}: {setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
   const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState<boolean>();
+  const hiddenFileInput = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -11,34 +14,43 @@ function LoadSave({data, setData}: {data: IData, setData: React.Dispatch<React.S
   };
 
   React.useEffect(() => {
-    async function uploadFile() {
+    const fetchData = async () => {
+      setLoading(true);
+      if (!file) return;
+
       try {
-        // setLoading("true");
-        if (!file) return;
-
-        const textContent = await file.text();
-        const jsonContent = JSON.parse(textContent);
-        setData(jsonContent)
-        // localStorage.setItem('data', jsonContent);
-
-        // setResult();
+        await uploadFile(file);
+        setDataTimestamp(Date.now());
       } catch (error) {
-        // setLoading("null");
+        console.log("Load data error: ", error)
+      }
+      finally {
+        setLoading(false);
       }
     }
-    uploadFile();
-  }, [file]);
+
+    fetchData()
+    .catch(console.error);
+
+    }, [file]);
+
+  const handleLoadClick = () => {
+    hiddenFileInput.current?.click();
+  }
+
+  const handleSaveClick = async () => {
+    await saveData(Stores.CachedData); // todo: temporary. for development only. remove later.
+
+    // todo: store follow two as one file
+    await saveData(Stores.IgnoredData);
+    await saveData(Stores.WatchedData);
+  }
 
   return (
-    <div className="LoadSave">
-      <input type="file" id="input" onChange={handleFileChange} />
-      <button>load</button>
-      <button>save</button>
-      <p>
-      todo:<br/>
-      - add actions. information stored in localStorage and can move from and to local file system.<br/>
-      - add styles. 
-      </p>
+    <div className="LoadSave" aria-disabled={loading} >
+      <input type="file" id="fileInput" hidden onChange={handleFileChange} ref={hiddenFileInput} />
+      <button onClick={handleLoadClick}>load</button>
+      <button onClick={handleSaveClick}>save</button>
     </div>
   )
 }
@@ -103,14 +115,6 @@ function Sources({data}: {data: ISourceItem[]}) {
   )
 }
 
-interface IWatchedItem {
-  url: string;
-  source_title: string; // it is necessary to user quick understanding what it is.
-  source_description: string | null
-  user_title: string; // it is necessary to user quick understanding what it is.
-  user_description: string | null
-}
-
 function WatchedItem({data}: {data: IWatchedItem}) {
   return (
     <div className="WatchedItem">
@@ -140,8 +144,19 @@ function WatchedItem({data}: {data: IWatchedItem}) {
   )
 }
 
-function Watched({data}: {data: IWatchedItem[]}) {
-  const watchedItems = data.map(item => <WatchedItem data={item}/>);
+function Watched({dataTimestamp}: {dataTimestamp: number}) {
+  const [watchedData, setWatchedData] = useState<IWatchedItem[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const data = await getWatchedData(); // todo: filter, sort, limit
+      console.log(data);
+      setWatchedData(data);
+    }
+    fetchData();
+  }, [dataTimestamp]);
+
+  const watchedItems = watchedData.map(item => <WatchedItem data={item}/>);
 
   return (
     <div className="Watched">
@@ -175,8 +190,18 @@ function OtherItem({data}: {data: IOtherItem}) {
   )
 }
 
-function Others({data}: {data: IOtherItem[]}) {
-  const otherItems = data.map(item => <OtherItem data={item}/>);
+function Others({dataTimestamp}: {dataTimestamp: number}) {
+  const [othersData, setOthersData] = useState<IOtherItem[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const data = await getData(Stores.CachedData); // todo: filter, sort, limit
+      setOthersData(data);
+    }
+    fetchData();
+  }, [dataTimestamp]);
+
+  const otherItems = othersData.map(item => <OtherItem data={item}/>);
 
   return (
     <div className="Others">
@@ -211,8 +236,18 @@ function IgnoredItem({data}: {data: IIgnoredItem}) {
   )
 }
 
-function Ignored({data}: {data: IIgnoredItem[]}) {
-  const ignoredItems = data.map(item => <IgnoredItem data={item}/>);
+function Ignored({dataTimestamp}: {dataTimestamp: number}) {
+  const [ignoredData, setIgnoredData] = useState<IIgnoredItem[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const data = await getData(Stores.IgnoredData); // todo: filter, sort, limit
+      setIgnoredData(data);
+    }
+    fetchData();
+  }, [dataTimestamp]);
+
+  const ignoredItems = ignoredData.map(item => <IgnoredItem data={item} key={item.url} />);
 
   return (
     <div className="Ignored">
@@ -222,23 +257,30 @@ function Ignored({data}: {data: IIgnoredItem[]}) {
   )
 }
 
-interface IData {
-  ignored_items: IIgnoredItem[];
-}
-
 function App() {
-  const [data, setData] = useState<IData>({
-    ignored_items: []
-  });
+  const [isDbReady, setIsDbReady] = useState<boolean>(false);
+  const [dataTimestamp, setDataTimestamp] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const fetchData = async () => {
+      await initDb();
+      setIsDbReady(true);
+    }
+    fetchData();
+  }, []);
 
   return (
     <div className="App">
       <header className="App-header"></header>
-      <LoadSave data={data} setData={setData}/>
-      <Sources data={[]} />
-      <Watched data={[]} />
-      <Others data={[]} />
-      <Ignored data={data.ignored_items} />
+      {isDbReady &&
+        <>
+          <LoadSave setDataTimestamp={setDataTimestamp} />
+          <Sources data={[]} />
+          <Watched dataTimestamp={dataTimestamp} />
+          <Others dataTimestamp={dataTimestamp} />
+          <Ignored dataTimestamp={dataTimestamp} />
+        </>
+      }
     </div>
   );
 }
