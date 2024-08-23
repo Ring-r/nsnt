@@ -14,10 +14,10 @@ function LoadSave({setDataTimestamp}: {setDataTimestamp: React.Dispatch<React.Se
   };
 
   React.useEffect(() => {
+    if (!file) return;
+
     const fetchData = async () => {
       setLoading(true);
-      if (!file) return;
-
       try {
         await uploadFile(file);
         setDataTimestamp(Date.now());
@@ -30,7 +30,6 @@ function LoadSave({setDataTimestamp}: {setDataTimestamp: React.Dispatch<React.Se
     }
 
     fetchData()
-    .catch(console.error);
 
     }, [file]);
 
@@ -119,27 +118,13 @@ function WatchedItem({data}: {data: IWatchedItem}) {
   return (
     <div className="WatchedItem">
       <div hidden>{data.url}</div>
-      <div>
-        <input name="user_title" value={data.user_title} />
-      </div>
-      <div>
-        <input name="source_title" value={data.source_title} />
-      </div>
-      {(data.user_description || data.source_description) &&
-        <details>
-          <summary>description</summary>
-          <textarea name="description">{data.user_description}</textarea>
-          {data.source_description &&
-            <details>
-              <summary>source description</summary>
-              <textarea name="description">{data.source_description}</textarea>
-            </details>
-          }
-        </details>
-      }
+      <input value={data.user_title} />
+      <span>{data.source_title}</span>
+      {data.user_description && <textarea>{data.user_description}</textarea>}
+      {data.source_description && <span>{data.source_description}</span>}
       <div hidden>priority</div>
-      <p>url (hidden). (later) image. user title (can be edited and saved; (maybe) set data from source title; input, useState, style). source title. (later) list of markers changes (details). user description (can be edited and save; textarea, useState, style; details). (maybe) source description (details). priority (drag and drop or buttons to change). ignore button (remove from watched list, add to ignored list).</p>
       <button>ignore</button>
+      {/* <p>url (hidden). (later) image. user title (can be edited and saved; (maybe) set data from source title; input, useState, style). source title. (later) list of markers changes (details). user description (can be edited and save; textarea, useState, style; details). (maybe) source description (details). priority (drag and drop or buttons to change). ignore button (remove from watched list, add to ignored list).</p> */}
     </div>
   )
 }
@@ -150,13 +135,12 @@ function Watched({dataTimestamp}: {dataTimestamp: number}) {
   useEffect(() => {
     const fetchData = async () => {
       const data = await getWatchedData(); // todo: filter, sort, limit
-      console.log(data);
       setWatchedData(data);
     }
     fetchData();
   }, [dataTimestamp]);
 
-  const watchedItems = watchedData.map(item => <WatchedItem data={item}/>);
+  const watchedItems = watchedData.map(item => <WatchedItem data={item} key={item.url} />);
 
   return (
     <div className="Watched">
@@ -176,16 +160,11 @@ function OtherItem({data}: {data: IOtherItem}) {
   return (
     <div className="OtherItem">
       <div hidden>{data.url}</div>
-      <div>{data.title}</div>
-      {data.description &&
-        <details>
-          <summary>{data.description}</summary>
-          <textarea name="description" />
-        </details>
-      }
-      <p>url (hidden). (later) image. title. (maybe) description (details). watch button (add to watched list). ignore button (add to ignored list).</p>
+      <span>{data.title}</span>
+      <span>{data.description}</span>
       <button>watch</button>
       <button>ignore</button>
+      {/* <p>url (hidden). (later) image. title. (maybe) description (details). watch button (add to watched list). ignore button (add to ignored list).</p> */}
     </div>
   )
 }
@@ -221,17 +200,10 @@ function IgnoredItem({data}: {data: IIgnoredItem}) {
   return (
     <div className="IgnoredItem">
       <div hidden>{data.url}</div>
-      <div>
-        <input name="title" value={data.title} />
-      </div>
-      {data.description &&
-        <details>
-          <summary>{data.description}</summary>
-          <textarea name="description">{data.description}</textarea>
-        </details>
-      }
-      <p>url (hidden). (later) image (details; lazy download). title (can be edited and saved; input, useState, style). description (can be edited and save; textarea, useState, style). watch button (remove from ignored list, add to watched list).</p>
+      <input value={data.title} />
+      {data.description && <textarea>{data.description}</textarea>}
       <button>watch</button>
+      {/* <p>url (hidden). (later) image (details; lazy download). title (can be edited and saved; input, useState, style). description (can be edited and save; textarea, useState, style). watch button (remove from ignored list, add to watched list).</p> */}
     </div>
   )
 }
