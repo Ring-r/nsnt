@@ -2,7 +2,7 @@ import { IDBPDatabase, openDB } from "idb";
 
 const dbName = "nsnt";
 const dbVersion = 1;
-let db1: IDBPDatabase<unknown>;
+let db: IDBPDatabase<unknown>;
 
 export enum Stores {
     CachedData = "cachedData",
@@ -31,7 +31,7 @@ export interface IData {
 }
 
 export const initDb = async () => {
-  db1 = await openDB(dbName, dbVersion, {
+  db = await openDB(dbName, dbVersion, {
     upgrade(db, oldVersion, newVersion, transaction, event) {
       if (!db.objectStoreNames.contains(Stores.CachedData)) {
         db.createObjectStore(Stores.CachedData, { keyPath: "url" });
@@ -49,7 +49,7 @@ export const initDb = async () => {
   });
 }
 
-export const uploadFile = async (file: File) => {
+export const loadData = async (file: File) => {
     const textContent = await file.text();
     const jsonContent = (JSON.parse(textContent) as IData); // todo: is it correct to use `as` here?
 
@@ -64,11 +64,22 @@ export const uploadFile = async (file: File) => {
 
 }
 
+export const saveData = async (isCachedData: boolean = false) => {
+  if (isCachedData) {
+    // todo: temporary. for development only. remove later.
+    const cachedData = await db.getAll(Stores.CachedData);
+    const jsonString = JSON.stringify(cachedData, null, 2);
+    downloadJSON(jsonString, "cached_data.json");  
+  }
 
-export const saveData = async (storeName: string) => {
-  const data = await db1.getAll(storeName);
+  const ignoreData = await db.getAll(Stores.IgnoredData);
+  const watchedData = await db.getAll(Stores.WatchedData);
+  const data = {
+    "watched_data": watchedData,
+    "ignore_data": ignoreData,
+  }
   const jsonString = JSON.stringify(data, null, 2);
-  downloadJSON(jsonString, storeName + ".json");
+  downloadJSON(jsonString, "data.json");
 }
 
 const downloadJSON = (jsonString: string, filename: string) => {
@@ -83,7 +94,7 @@ const downloadJSON = (jsonString: string, filename: string) => {
 
 export const addData = async (storeName: string, item: IItem) => {
   try {
-    await db1.add(storeName, item);
+    await db.add(storeName, item);
     // todo: signal
   }
   catch {
@@ -94,14 +105,35 @@ export const addData = async (storeName: string, item: IItem) => {
 }
 
 export const getData = async (storeName: string) => {
-  return db1.getAll(storeName, null, 3);
+  const count = 10;
+  return db.getAll(storeName, null, count);
+}
+
+export const getOthersData = async () => {
+  let cursor = await db.transaction(Stores.CachedData).store.openCursor();
+
+  const count = 10;
+  let i = 0;
+  const data = []
+  while (cursor) {
+    if (await db.get(Stores.IgnoredData, cursor.key)) continue;
+    if (await db.get(Stores.WatchedData, cursor.key)) continue;
+
+    data.push(cursor.value);
+
+    i++;
+    if (i === count) break;
+    cursor = await cursor.continue();
+  }
+
+  return data;
 }
 
 export const getWatchedData = async () => {
-  const watchedData = await db1.getAll(Stores.WatchedData, null, 3);
+  const watchedData = await db.getAll(Stores.WatchedData, null, 3);
   const data: IWatchedItem[] = [];
   for await (const watchedItem of watchedData) {
-    const cachedItem = await db1.get(Stores.CachedData, watchedItem.url);
+    const cachedItem = await db.get(Stores.CachedData, watchedItem.url);
     data.push({
       url: watchedItem.url,
       source_title: cachedItem.title,
@@ -111,4 +143,26 @@ export const getWatchedData = async () => {
     })
   }
   return data;
+}
+
+export const ignoreData = async (itemUrl: string) => {
+  let item = await db.get(Stores.WatchedData, itemUrl);
+  if (item) {
+    await db.delete(Stores.WatchedData, itemUrl);
+  }
+  else {
+    item = await db.get(Stores.CachedData, itemUrl);
+  }
+  addData(Stores.IgnoredData, item);
+}
+
+export const watcheData = async (itemUrl: string) => {
+  let item = await db.get(Stores.IgnoredData, itemUrl);
+  if (item) {
+    await db.delete(Stores.IgnoredData, itemUrl);
+  }
+  else {
+    item = await db.get(Stores.CachedData, itemUrl);
+  }
+  addData(Stores.WatchedData, item);
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
-import { getData, getWatchedData, initDb, IWatchedItem, saveData, Stores, uploadFile } from './db';
+import { getData, getOthersData, getWatchedData, ignoreData, initDb, IWatchedItem, loadData, saveData, Stores, watcheData } from './db';
 
 function LoadSave({setDataTimestamp}: {setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
   const [file, setFile] = useState<File | null>(null);
@@ -19,7 +19,7 @@ function LoadSave({setDataTimestamp}: {setDataTimestamp: React.Dispatch<React.Se
     const fetchData = async () => {
       setLoading(true);
       try {
-        await uploadFile(file);
+        await loadData(file);
         setDataTimestamp(Date.now());
       } catch (error) {
         console.log("Load data error: ", error)
@@ -38,11 +38,7 @@ function LoadSave({setDataTimestamp}: {setDataTimestamp: React.Dispatch<React.Se
   }
 
   const handleSaveClick = async () => {
-    await saveData(Stores.CachedData); // todo: temporary. for development only. remove later.
-
-    // todo: store follow two as one file
-    await saveData(Stores.IgnoredData);
-    await saveData(Stores.WatchedData);
+    await saveData(true);
   }
 
   return (
@@ -114,7 +110,12 @@ function Sources({data}: {data: ISourceItem[]}) {
   )
 }
 
-function WatchedItem({data}: {data: IWatchedItem}) {
+function WatchedItem({data, setDataTimestamp}: {data: IWatchedItem, setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
+  const handleIgnoreClick = async () => {
+    await ignoreData(data.url);
+    setDataTimestamp(Date.now());
+  }
+
   return (
     <div className="WatchedItem">
       <div hidden>{data.url}</div>
@@ -123,13 +124,13 @@ function WatchedItem({data}: {data: IWatchedItem}) {
       {data.user_description && <textarea>{data.user_description}</textarea>}
       {data.source_description && <span>{data.source_description}</span>}
       <div hidden>priority</div>
-      <button>ignore</button>
+      <button onClick={handleIgnoreClick}>ignore</button>
       {/* <p>url (hidden). (later) image. user title (can be edited and saved; (maybe) set data from source title; input, useState, style). source title. (later) list of markers changes (details). user description (can be edited and save; textarea, useState, style; details). (maybe) source description (details). priority (drag and drop or buttons to change). ignore button (remove from watched list, add to ignored list).</p> */}
     </div>
   )
 }
 
-function Watched({dataTimestamp}: {dataTimestamp: number}) {
+function Watched({dataTimestamp, setDataTimestamp}: {dataTimestamp: number, setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
   const [watchedData, setWatchedData] = useState<IWatchedItem[]>([]);
 
   useEffect(() => {
@@ -140,7 +141,7 @@ function Watched({dataTimestamp}: {dataTimestamp: number}) {
     fetchData();
   }, [dataTimestamp]);
 
-  const watchedItems = watchedData.map(item => <WatchedItem data={item} key={item.url} />);
+  const watchedItems = watchedData.map(item => <WatchedItem data={item} setDataTimestamp={setDataTimestamp} key={item.url} />);
 
   return (
     <div className="Watched">
@@ -156,31 +157,40 @@ interface IOtherItem {
   description: string | null // the data is set by society.
 }
 
-function OtherItem({data}: {data: IOtherItem}) {
+function OtherItem({data, setDataTimestamp}: {data: IOtherItem, setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
+  const handleWatcheClick = async () => {
+    await watcheData(data.url);
+    setDataTimestamp(Date.now());
+  }
+  const handleIgnoreClick = async () => {
+    await ignoreData(data.url);
+    setDataTimestamp(Date.now());
+  }
+
   return (
     <div className="OtherItem">
       <div hidden>{data.url}</div>
       <span>{data.title}</span>
       <span>{data.description}</span>
-      <button>watch</button>
-      <button>ignore</button>
+      <button onClick={handleWatcheClick}>watch</button>
+      <button onClick={handleIgnoreClick}>ignore</button>
       {/* <p>url (hidden). (later) image. title. (maybe) description (details). watch button (add to watched list). ignore button (add to ignored list).</p> */}
     </div>
   )
 }
 
-function Others({dataTimestamp}: {dataTimestamp: number}) {
+function Others({dataTimestamp, setDataTimestamp}: {dataTimestamp: number, setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
   const [othersData, setOthersData] = useState<IOtherItem[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
-      const data = await getData(Stores.CachedData); // todo: filter, sort, limit
+      const data = await getOthersData(); // todo: filter, sort, limit
       setOthersData(data);
     }
     fetchData();
   }, [dataTimestamp]);
 
-  const otherItems = othersData.map(item => <OtherItem data={item}/>);
+  const otherItems = othersData.map(item => <OtherItem data={item} setDataTimestamp={setDataTimestamp} key={item.url} />);
 
   return (
     <div className="Others">
@@ -196,19 +206,24 @@ interface IIgnoredItem {
   description: string | null // the data can be set by user.
 }
 
-function IgnoredItem({data}: {data: IIgnoredItem}) {
+function IgnoredItem({data, setDataTimestamp}: {data: IIgnoredItem, setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
+  const handleWatcheClick = async () => {
+    await watcheData(data.url);
+    setDataTimestamp(Date.now());
+  }
+
   return (
     <div className="IgnoredItem">
       <div hidden>{data.url}</div>
       <input value={data.title} />
       {data.description && <textarea>{data.description}</textarea>}
-      <button>watch</button>
+      <button onClick={handleWatcheClick}>watch</button>
       {/* <p>url (hidden). (later) image (details; lazy download). title (can be edited and saved; input, useState, style). description (can be edited and save; textarea, useState, style). watch button (remove from ignored list, add to watched list).</p> */}
     </div>
   )
 }
 
-function Ignored({dataTimestamp}: {dataTimestamp: number}) {
+function Ignored({dataTimestamp, setDataTimestamp}: {dataTimestamp: number, setDataTimestamp: React.Dispatch<React.SetStateAction<number>>}) {
   const [ignoredData, setIgnoredData] = useState<IIgnoredItem[]>([]);
 
   useEffect(() => {
@@ -219,7 +234,7 @@ function Ignored({dataTimestamp}: {dataTimestamp: number}) {
     fetchData();
   }, [dataTimestamp]);
 
-  const ignoredItems = ignoredData.map(item => <IgnoredItem data={item} key={item.url} />);
+  const ignoredItems = ignoredData.map(item => <IgnoredItem data={item} setDataTimestamp={setDataTimestamp} key={item.url} />);
 
   return (
     <div className="Ignored">
@@ -248,9 +263,9 @@ function App() {
         <>
           <LoadSave setDataTimestamp={setDataTimestamp} />
           <Sources data={[]} />
-          <Watched dataTimestamp={dataTimestamp} />
-          <Others dataTimestamp={dataTimestamp} />
-          <Ignored dataTimestamp={dataTimestamp} />
+          <Watched dataTimestamp={dataTimestamp} setDataTimestamp={setDataTimestamp} />
+          <Others dataTimestamp={dataTimestamp} setDataTimestamp={setDataTimestamp} />
+          <Ignored dataTimestamp={dataTimestamp} setDataTimestamp={setDataTimestamp} />
         </>
       }
     </div>
